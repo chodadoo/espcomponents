@@ -57,7 +57,7 @@ bool UARTExDevice::parse_data(const std::vector<uint8_t>& data)
 {
     if (verify_state(data, get_state_response())) this->rx_response_ = true;
     else this->rx_response_ = false;
-    if (!verify_state(data, get_state())) return false;
+    if (get_state() != nullptr && !verify_state(data, get_state())) return false;
     if (verify_state(data, get_state_off())) publish(false);
     if (verify_state(data, get_state_on())) publish(true);
     state_data_ = data;
@@ -166,14 +166,49 @@ bool verify_state(const std::vector<uint8_t>& data, const state_t* state)
     return false;
 }
 
+// float state_to_float(const std::vector<uint8_t>& data, const state_num_t state)
+// {
+//     int32_t val = 0;
+//     for (uint16_t i = state.offset, len = 0; i < data.size() && len < state.length; i++, len++)
+//     {
+//         val = (val << 8) | (int8_t)data[i];
+//     }
+//     return val / powf(10, state.precision);
+// }
+
 float state_to_float(const std::vector<uint8_t>& data, const state_num_t state)
 {
-    int32_t val = 0;
-    for (uint16_t i = state.offset, len = 0; i < data.size() && len < state.length; i++, len++)
+    uint32_t val = 0;
+    for (size_t i = 0; i < state.length && (state.offset + i) < data.size(); i++)
     {
-        val = (val << 8) | (int8_t)data[i];
+        if (state.bcd)
+        {
+            uint8_t byte = data[state.offset + i];
+            uint8_t tens = (byte >> 4) & 0x0F;
+            uint8_t ones = byte & 0x0F;
+            if (tens > 9 || ones > 9) break;
+            val = val * 100 + (tens * 10 + ones);
+        }
+        else
+        {
+            if (state.endian == ENDIAN_BIG) val = (val << 8) | data[state.offset + i];
+            else val |= static_cast<uint32_t>(data[state.offset + i]) << (8 * i);
+        }
+    }
+    
+    if (state.is_signed)
+    {
+        int shift = 32 - state.length * 8;
+        int32_t signed_val = (static_cast<int32_t>(val) << shift) >> shift;
+        return signed_val / powf(10, state.precision);
     }
     return val / powf(10, state.precision);
+}
+
+uint8_t float_to_bcd(const float val)
+{
+    int decimal_value = val;
+    return ((decimal_value / 10) << 4) | (decimal_value % 10);
 }
 
 std::string to_hex_string(const std::vector<unsigned char>& data)
@@ -183,6 +218,20 @@ std::string to_hex_string(const std::vector<unsigned char>& data)
     for (uint16_t i = 0; i < data.size(); i++)
     {
         sprintf(buf, "%02X", data[i]);
+        res += buf;
+    }
+    sprintf(buf, "(%d)", data.size());
+    res += buf;
+    return res;
+}
+
+std::string to_ascii_string(const std::vector<unsigned char>& data)
+{
+    char buf[10];
+    std::string res;
+    for (uint16_t i = 0; i < data.size(); i++)
+    {
+        sprintf(buf, "%c", data[i]);
         res += buf;
     }
     sprintf(buf, "(%d)", data.size());
