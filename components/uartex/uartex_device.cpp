@@ -1,7 +1,4 @@
 #include "uartex_device.h"
-#include "esphome/core/log.h"
-#include "esphome/core/helpers.h"
-#include "esphome/core/application.h"
 
 namespace esphome {
 namespace uartex {
@@ -15,29 +12,23 @@ void UARTExDevice::update()
 
 void UARTExDevice::uartex_dump_config(const char* TAG)
 {
-    state_t* state = get_state();
-    if (state) ESP_LOGCONFIG(TAG, "  State: %s, offset: %d, inverted: %s", to_hex_string(state->data).c_str(), state->offset, YESNO(state->inverted));
-    state = get_state_on();
-    if (state) ESP_LOGCONFIG(TAG, "  State ON: %s, offset: %d, inverted: %s", to_hex_string(state->data).c_str(), state->offset, YESNO(state->inverted));
-    state = get_state_off();
-    if (state) ESP_LOGCONFIG(TAG, "  State OFF: %s, offset: %d, inverted: %s", to_hex_string(state->data).c_str(), state->offset, YESNO(state->inverted));
-    state = get_state_response();
-    if (state) ESP_LOGCONFIG(TAG, "  State RESP: %s, offset: %d, inverted: %s", to_hex_string(state->data).c_str(), state->offset, YESNO(state->inverted));
-
-    cmd_t* cmd = get_command_on();
-    if (cmd) ESP_LOGCONFIG(TAG, "  Command ON: %s, ACK: %s", to_hex_string(cmd->data).c_str(), to_hex_string(cmd->ack).c_str());
-    cmd = get_command_off();
-    if (cmd) ESP_LOGCONFIG(TAG, "  Command OFF: %s, ACK: %s", to_hex_string(cmd->data).c_str(), to_hex_string(cmd->ack).c_str());
-    cmd = get_command_update();
-    if (cmd) ESP_LOGCONFIG(TAG, "  Command UPDATE: %s, ACK: %s", to_hex_string(cmd->data).c_str(), to_hex_string(cmd->ack).c_str());
-    LOG_UPDATE_INTERVAL(this);
+#ifdef ESPHOME_LOG_HAS_DEBUG
+    log_config(TAG, "State", get_state());
+    log_config(TAG, "State On", get_state_on());
+    log_config(TAG, "State Off", get_state_off());
+    log_config(TAG, "State Response", get_state_response());
+    log_config(TAG, "Command On", get_command_on());
+    log_config(TAG, "Command Off", get_command_off());
+    log_config(TAG, "Command Update", get_command_update());
+    if (get_command_update()) LOG_UPDATE_INTERVAL(this);
+#endif
 }
 
 const cmd_t *UARTExDevice::dequeue_tx_cmd()
 {
     if (get_state_response() && !this->rx_response_) return nullptr;
     this->rx_response_ = false;
-    if (this->tx_cmd_queue_.size() == 0) return nullptr;
+    if (this->tx_cmd_queue_.empty()) return nullptr;
     const cmd_t *cmd = this->tx_cmd_queue_.front();
     this->tx_cmd_queue_.pop();
     return cmd;
@@ -47,7 +38,7 @@ const cmd_t *UARTExDevice::dequeue_tx_cmd_low_priority()
 {
     if (get_state_response() && !this->rx_response_) return nullptr;
     this->rx_response_ = false;
-    if (this->tx_cmd_queue_low_priority_.size() == 0) return nullptr;
+    if (this->tx_cmd_queue_low_priority_.empty()) return nullptr;
     const cmd_t *cmd = this->tx_cmd_queue_low_priority_.front();
     this->tx_cmd_queue_low_priority_.pop();
     return cmd;
@@ -74,7 +65,7 @@ uint8_t UARTExDevice::get_state_data(uint32_t index)
 bool UARTExDevice::enqueue_tx_cmd(const cmd_t* cmd, bool low_priority)
 {
     if (cmd == nullptr) return false;
-    if (cmd->data.size() == 0) return false;
+    if (cmd->data.empty()) return false;
     if (low_priority) this->tx_cmd_queue_low_priority_.push(cmd);
     else this->tx_cmd_queue_.push(cmd);
     return true;
@@ -120,6 +111,12 @@ state_t* UARTExDevice::get_state(const std::string& name)
     return nullptr;
 }
 
+state_num_t* UARTExDevice::get_state_num(const std::string& name)
+{
+    if (contains(this->state_num_map_, name)) return &this->state_num_map_[name];
+    return nullptr;
+}
+
 optional<float> UARTExDevice::get_state_float(const std::string& name, const std::vector<uint8_t>& data)
 {
     if (contains(this->state_float_func_map_, name)) return (this->state_float_func_map_[name])(&data[0], data.size());
@@ -148,12 +145,13 @@ bool equal(const std::vector<uint8_t>& data1, const std::vector<uint8_t>& data2,
     return std::equal(data1.begin() + offset, data1.begin() + offset + data2.size(), data2.begin());
 }
 
-const std::vector<uint8_t> masked_data(const std::vector<uint8_t>& data, const state_t* state)
+std::vector<uint8_t> apply_mask(const std::vector<uint8_t>& data, const state_t* state)
 {
+    if (state == nullptr || state->mask.empty()) return data;
     std::vector<uint8_t> masked_data = data;
-    for (size_t i = state->offset, j = 0; i < data.size() && j < state->mask.size(); i++, j++)
+    for (size_t i = 0; (state->offset + i) < data.size() && i < state->mask.size(); i++)
     {
-        masked_data[i] &= state->mask[j];
+        masked_data[state->offset + i] &= state->mask[i];
     }
     return masked_data;
 }
@@ -161,20 +159,8 @@ const std::vector<uint8_t> masked_data(const std::vector<uint8_t>& data, const s
 bool verify_state(const std::vector<uint8_t>& data, const state_t* state)
 {
     if (state == nullptr) return false;
-    if (state->mask.size() == 0)    return equal(data, state->data, state->offset) ? !state->inverted : state->inverted;
-    else                            return equal(masked_data(data, state), state->data, state->offset) ? !state->inverted : state->inverted;
-    return false;
+    return equal(apply_mask(data, state), state->data, state->offset) ? !state->inverted : state->inverted;
 }
-
-// float state_to_float(const std::vector<uint8_t>& data, const state_num_t state)
-// {
-//     int32_t val = 0;
-//     for (uint16_t i = state.offset, len = 0; i < data.size() && len < state.length; i++, len++)
-//     {
-//         val = (val << 8) | (int8_t)data[i];
-//     }
-//     return val / powf(10, state.precision);
-// }
 
 float state_to_float(const std::vector<uint8_t>& data, const state_num_t state)
 {
@@ -200,7 +186,7 @@ float state_to_float(const std::vector<uint8_t>& data, const state_num_t state)
             else val |= static_cast<uint32_t>(data[state.offset + i]) << (8 * i);
         }
     }
-    if(state.decode == DECODE_ASCII) val = atoi(str.c_str());
+    if (state.decode == DECODE_ASCII) val = atoi(str.c_str());
     if (state.is_signed)
     {
         int shift = 32 - state.length * 8;
@@ -218,44 +204,37 @@ uint8_t float_to_bcd(const float val)
 
 std::string to_hex_string(const std::vector<unsigned char>& data)
 {
-    char buf[10];
-    std::string res;
-    for (uint16_t i = 0; i < data.size(); i++)
-    {
-        sprintf(buf, "%02X", data[i]);
-        res += buf;
-    }
-    sprintf(buf, "(%d)", data.size());
-    res += buf;
-    return res;
+    return to_hex_string(&data[0], data.size());
 }
 
 std::string to_ascii_string(const std::vector<unsigned char>& data)
 {
-    char buf[10];
     std::string res;
-    for (uint16_t i = 0; i < data.size(); i++)
+    res.reserve(data.size() + 10);
+    for (auto ch : data)
     {
-        sprintf(buf, "%c", data[i]);
-        res += buf;
+        res.push_back(static_cast<char>(ch));
     }
-    sprintf(buf, "(%d)", data.size());
-    res += buf;
+    char buf[16] = {0};
+    std::snprintf(buf, sizeof(buf), "(%zu)", data.size());
+    res.append(buf);
     return res;
 }
 
 std::string to_hex_string(const uint8_t* data, const uint16_t len)
 {
-    char buf[5];
-    std::string res;
-    for (uint16_t i = 0; i < len; i++)
+    char buf[3] = {0}; 
+    std::string hex_str;
+    hex_str.reserve(static_cast<size_t>(len) * 2 + 10);
+    for (uint16_t i = 0; i < len; ++i)
     {
-        sprintf(buf, "%02X", data[i]);
-        res += buf;
+        std::snprintf(buf, sizeof(buf), "%02X", data[i]);
+        hex_str.append(buf);
     }
-    sprintf(buf, "(%d)", len);
-    res += buf;
-    return res;
+    char size_buf[16] = {0};
+    std::snprintf(size_buf, sizeof(size_buf), "(%u)", len);
+    hex_str.append(size_buf);
+    return hex_str;
 }
 
 unsigned long elapsed_time(const unsigned long timer)
@@ -266,6 +245,50 @@ unsigned long elapsed_time(const unsigned long timer)
 unsigned long get_time()
 {
     return millis();
+}
+
+void log_config(const char* tag, const char* title, const char* value)
+{
+    if (value == 0) return;
+    ESP_LOGCONFIG(tag, "%s: %s", title, value);
+}
+
+void log_config(const char* tag, const char* title, const uint16_t value)
+{
+    if (value == 0) return;
+    ESP_LOGCONFIG(tag, "%s: %d", title, value);
+}
+
+void log_config(const char* tag, const char* title, const bool value)
+{
+    if (!value) return;
+    ESP_LOGCONFIG(tag, "%s: %s", title, YESNO(value));
+}
+
+void log_config(const char* tag, const char* title, const std::vector<uint8_t>& value)
+{
+    if (value.empty()) return;
+    ESP_LOGCONFIG(tag, "%s: %s", title, to_hex_string(value).c_str());
+}
+
+void log_config(const char* tag, const char* title, const state_t* state)
+{
+    if (state == nullptr) return;
+    ESP_LOGCONFIG(tag, "%s: %s, offset: %d, inverted: %s", title, to_hex_string(state->data).c_str(), state->offset, YESNO(state->inverted));
+    if (!state->mask.empty()) ESP_LOGCONFIG(tag, "%s mask: %s", title, to_hex_string(state->mask).c_str());
+}
+
+void log_config(const char* tag, const char* title, const state_num_t* state_num)
+{
+    if (state_num == nullptr) return;
+    ESP_LOGCONFIG(tag, "%s: offset: %d, length: %d, precision: %d", title, state_num->offset, state_num->length, state_num->precision);
+    ESP_LOGCONFIG(tag, "%s: signed: %s, endian: %d, decode: %d", title, YESNO(state_num->is_signed), state_num->endian, state_num->decode);
+}
+
+void log_config(const char* tag, const char* title, const cmd_t* cmd)
+{
+    if (cmd == nullptr) return;
+    ESP_LOGCONFIG(tag, "%s: %s, Ack: %s, Mask: %s", title, to_hex_string(cmd->data).c_str(), to_hex_string(cmd->ack).c_str(), to_hex_string(cmd->mask).c_str());
 }
 
 }  // namespace uartex

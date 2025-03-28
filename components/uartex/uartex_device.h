@@ -1,10 +1,17 @@
 #pragma once
 #include <vector>
 #include <queue>
-#include <stdio.h>
-#include "esphome/core/component.h"
-#include "esphome/core/hal.h"
+#include <string>
+#include <cstdint>
+#include <cstdio>
 #include <unordered_map>
+
+#include "esphome/core/hal.h"
+#include "esphome/core/log.h"
+#include "esphome/core/helpers.h"
+#include "esphome/core/component.h"
+#include "esphome/core/application.h"
+
 
 namespace esphome {
 namespace uartex {
@@ -73,6 +80,7 @@ protected:
     cmd_t* get_command(const std::string& name, const float x);
     cmd_t* get_command(const std::string& name);
     state_t* get_state(const std::string& name);
+    state_num_t* get_state_num(const std::string& name);
     optional<float> get_state_float(const std::string& name, const std::vector<uint8_t>& data);
     optional<std::string> get_state_str(const std::string& name, const std::vector<uint8_t>& data);
     bool has_state(const std::string& name);
@@ -104,7 +112,7 @@ protected:
 template<typename KeyType, typename ValueType>
 bool contains(const std::unordered_map<KeyType, ValueType>& map, const KeyType& key) { return map.find(key) != map.end(); }
 bool equal(const std::vector<uint8_t>& data1, const std::vector<uint8_t>& data2,  const uint16_t offset = 0);
-const std::vector<uint8_t> masked_data(const std::vector<uint8_t>& data, const state_t* state);
+std::vector<uint8_t> apply_mask(const std::vector<uint8_t>& data, const state_t* state);
 bool verify_state(const std::vector<uint8_t>& data, const state_t* state);
 float state_to_float(const std::vector<uint8_t>& data, const state_num_t state);
 uint8_t float_to_bcd(const float val);
@@ -113,6 +121,12 @@ std::string to_ascii_string(const std::vector<unsigned char>& data);
 std::string to_hex_string(const uint8_t* data, const uint16_t len);
 unsigned long elapsed_time(const unsigned long timer);
 unsigned long get_time();
-
+void log_config(const char* tag, const char* title, const char* value);
+void log_config(const char* tag, const char* title, const uint16_t value);
+void log_config(const char* tag, const char* title, const bool value);
+void log_config(const char* tag, const char* title, const std::vector<uint8_t>& value);
+void log_config(const char* tag, const char* title, const state_t* state);
+void log_config(const char* tag, const char* title, const state_num_t* state_num);
+void log_config(const char* tag, const char* title, const cmd_t* cmd);
 } // namespace uartex
 } // namespace esphome
