@@ -3,18 +3,20 @@ uart:
   data_bits: 8
   parity: NONE
   stop_bits: 1
-  rx_pin: GPIO32
-  tx_pin: GPIO26
+  rx_pin: GPIO22
+  tx_pin: GPIO19
   
 external_components:
   - source: github://eigger/espcomponents/@latest
     components: [ uartex ]
     refresh: always  
   
+#^[001]\r  
+#^[002]\r  
 uartex:
   rx_timeout: 10ms
-  rx_header: [0x5E, 0x5B]
-  rx_footer: [0x5D, 0x0D]
+  rx_header: "^"
+  rx_footer: "\r"
 
   version:
     disabled: False
@@ -28,12 +30,5 @@ number:
     name: "People Count"
     id: id_people_count
     max_value: 30
-    min_value: 0
-    step: 1
-    state: [0x30, 0x30]
-    state_number: !lambda |-
-      float state = id(id_people_count).state;
-      float step = id(id_people_count).traits.get_step();
-      if (data[2] == '1') return state + step;
-      if (data[2] == '2') return state - step;
-      return state;
+    state_increment: "[001]"
+    state_decrement: "[002]"
