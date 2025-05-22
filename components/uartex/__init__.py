@@ -4,7 +4,7 @@ from esphome.components import uart, text_sensor
 from esphome.components.text_sensor import register_text_sensor
 from esphome import automation, pins, core
 from esphome.const import CONF_ID, CONF_OFFSET, CONF_DATA, CONF_TRIGGER_ID, \
-    CONF_INVERTED, CONF_VERSION, CONF_NAME, CONF_ICON, CONF_ENTITY_CATEGORY, ICON_NEW_BOX
+    CONF_INVERTED, CONF_VERSION, CONF_NAME, CONF_OPTIMISTIC, CONF_ICON, CONF_ENTITY_CATEGORY, ICON_NEW_BOX
 from esphome.util import SimpleRegistry
 from .const import CONF_RX_HEADER, CONF_RX_FOOTER, CONF_TX_HEADER, CONF_TX_FOOTER, \
     CONF_RX_CHECKSUM, CONF_TX_CHECKSUM, CONF_RX_CHECKSUM_2, CONF_TX_CHECKSUM_2, \
@@ -171,7 +171,7 @@ CONFIG_SCHEMA = cv.All(cv.Schema({
     cv.Optional(CONF_TX_CHECKSUM): validate_checksum,
     cv.Optional(CONF_RX_CHECKSUM_2): validate_checksum,
     cv.Optional(CONF_TX_CHECKSUM_2): validate_checksum,
-    cv.Optional(CONF_VERSION): text_sensor.TEXT_SENSOR_SCHEMA.extend(
+    cv.Optional(CONF_VERSION): text_sensor._TEXT_SENSOR_SCHEMA.extend(
     {
         cv.GenerateID(): cv.declare_id(text_sensor.TextSensor),
         cv.Optional(CONF_NAME, default="Version"): cv._validate_entity_name,
@@ -179,7 +179,7 @@ CONFIG_SCHEMA = cv.All(cv.Schema({
         cv.Optional(CONF_ENTITY_CATEGORY, default="diagnostic"): cv.entity_category,
         cv.Optional(CONF_DISABLED, default=False): cv.boolean,
     }),
-    cv.Optional(CONF_ERROR): text_sensor.TEXT_SENSOR_SCHEMA.extend(
+    cv.Optional(CONF_ERROR): text_sensor._TEXT_SENSOR_SCHEMA.extend(
     {
         cv.GenerateID(): cv.declare_id(text_sensor.TextSensor),
         cv.Optional(CONF_NAME, default="Error"): cv._validate_entity_name,
@@ -187,7 +187,7 @@ CONFIG_SCHEMA = cv.All(cv.Schema({
         cv.Optional(CONF_ENTITY_CATEGORY, default="diagnostic"): cv.entity_category,
         cv.Optional(CONF_DISABLED, default=False): cv.boolean,
     }),
-    cv.Optional(CONF_LOG): text_sensor.TEXT_SENSOR_SCHEMA.extend(
+    cv.Optional(CONF_LOG): text_sensor._TEXT_SENSOR_SCHEMA.extend(
     {
         cv.GenerateID(): cv.declare_id(text_sensor.TextSensor),
         cv.Optional(CONF_NAME, default="Log"): cv._validate_entity_name,
@@ -315,12 +315,13 @@ async def to_code(config):
 UARTEX_DEVICE_SCHEMA = cv.Schema({
     cv.GenerateID(CONF_UARTEX_ID): uartex_declare_type,
     cv.Optional(CONF_STATE): state_schema,
-    cv.Required(CONF_STATE_ON): state_schema,
-    cv.Required(CONF_STATE_OFF): state_schema,
-    cv.Required(CONF_COMMAND_ON): cv.templatable(command_hex_schema),
-    cv.Required(CONF_COMMAND_OFF): cv.templatable(command_hex_schema),
+    cv.Optional(CONF_STATE_ON): state_schema,
+    cv.Optional(CONF_STATE_OFF): state_schema,
+    cv.Optional(CONF_COMMAND_ON): cv.templatable(command_hex_schema),
+    cv.Optional(CONF_COMMAND_OFF): cv.templatable(command_hex_schema),
     cv.Optional(CONF_COMMAND_UPDATE): cv.templatable(command_hex_schema),
     cv.Optional(CONF_STATE_RESPONSE): state_schema,
+    cv.Optional(CONF_OPTIMISTIC, default=False): cv.boolean,
 }).extend(cv.polling_component_schema('60s'))
 
 STATE_NUM_SCHEMA = cv.Schema({
@@ -368,6 +369,9 @@ async def register_uartex_device(var, config):
     if CONF_STATE_RESPONSE in config:
         state = state_hex_expression(config[CONF_STATE_RESPONSE])
         cg.add(var.set_state(CONF_STATE_RESPONSE, state))
+    
+    if CONF_OPTIMISTIC in config:
+        cg.add(var.set_optimistic(config[CONF_OPTIMISTIC]))
 
 def header_hex_expression(conf):
     if conf is None:
